@@ -32,6 +32,9 @@ STDIN_ARGS = {
     "prettier": ["--stdin-filepath=$path"],
     "taplo": ["-"],  # taplo format -
     "ruff": ["--stdin-filename=input.py"],  # ruff format/check needs filename for stdin
+    "mdformat": ["-"],  # mdformat reads from stdin with -
+    "shfmt": ["-"],  # shfmt reads from stdin with -
+    "typstyle": [],  # typstyle reads from stdin by default (no arg needed)
 }
 
 # Tools that need wrapper scripts (no stdin support, but do modify files)
@@ -39,6 +42,11 @@ NEEDS_WRAPPER = {
     "deadnix",  # Requires file path, uses --edit
     "ruff-isort",  # ruff check --fix doesn't support stdin/stdout
     "ruff-check",  # ruff check --fix modifies files in-place
+}
+
+# Tools where -i means inplace (not indent)
+INPLACE_SHORT_FLAG = {
+    "typstyle",  # -i = --inplace
 }
 
 
@@ -232,11 +240,11 @@ def get_stdin_command(
         return get_inline_command(name, command, options, "passthrough")
 
     # Filter out file-modifying options
-    filtered_opts = [
-        opt
-        for opt in options
-        if opt not in ["-w", "--write", "-e", "--edit", "--fix", "-i", "--inplace"]
-    ]
+    # Note: -i means inplace for some tools (typstyle) but indent for others (shfmt)
+    exclude = ["-w", "--write", "-e", "--edit", "--fix", "--inplace"]
+    if cmd_name in INPLACE_SHORT_FLAG:
+        exclude.append("-i")
+    filtered_opts = [opt for opt in options if opt not in exclude]
 
     base_cmd = [command, *filtered_opts]
 
