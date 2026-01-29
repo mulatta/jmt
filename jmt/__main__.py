@@ -263,8 +263,8 @@ def to_toml_array(items: list[str]) -> str:
     """Convert list to TOML array format."""
     escaped = []
     for item in items:
-        # Escape backslashes and double quotes for TOML
-        item = item.replace("\\", "\\\\").replace('"', '\\"')
+        # Escape backslashes, double quotes, and newlines for TOML
+        item = item.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         escaped.append(f'"{item}"')
     return "[" + ", ".join(escaped) + "]"
 
