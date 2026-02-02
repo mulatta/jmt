@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 
 # Tools completely excluded from jj fix
-EXCLUDED_TOOLS: set[str] = set()
+# mypy: type checker that doesn't modify files, treefmt generates complex bash scripts
+EXCLUDED_TOOLS = {"mypy"}
 
 # Linters: show warnings via pass-through (stderr), pass content unchanged (stdout)
 PASSTHROUGH_LINTERS = {
@@ -201,7 +202,7 @@ def get_inline_command(name: str, command: str, options: list[str], mode: str) -
     filtered_opts = [opt for opt in options if opt not in ["-w", "--write"]]
     opts_str = " ".join(f'"{opt}"' for opt in filtered_opts)
 
-    # File extension for temp file
+    # File extension for temp file (use prefix matching for tool-directory names)
     ext_map = {
         "deadnix": ".nix",
         "statix": ".nix",
@@ -209,7 +210,11 @@ def get_inline_command(name: str, command: str, options: list[str], mode: str) -
         "ruff-isort": ".py",
         "ruff-check": ".py",
     }
-    ext = ext_map.get(name, "")
+    ext = ""
+    for tool, tool_ext in ext_map.items():
+        if name == tool or name.startswith(f"{tool}-"):
+            ext = tool_ext
+            break
 
     # Use JMT_MKTEMP env var for GNU-compatible mktemp (macOS compatibility)
     mktemp_cmd = os.environ.get("JMT_MKTEMP", "mktemp")
@@ -234,9 +239,9 @@ def get_stdin_command(
     cmd_name = Path(command).name
 
     # Use inline bash for tools that need wrapping
-    if wrapper_type == "edit" and name in NEEDS_WRAPPER:
+    if wrapper_type == "edit":
         return get_inline_command(name, command, options, "edit")
-    if wrapper_type == "passthrough" and name in PASSTHROUGH_LINTERS:
+    if wrapper_type == "passthrough":
         return get_inline_command(name, command, options, "passthrough")
 
     # Filter out file-modifying options
@@ -277,7 +282,9 @@ def generate_jj_config(treefmt_config: dict, only_tools: set[str] | None = None)
     global_excludes = treefmt_config.get("global", {}).get("excludes", [])
 
     for name, config in sorted(formatters.items()):
-        if name in EXCLUDED_TOOLS:
+        # Check exclusion with prefix matching (e.g., "mypy-foo" matches "mypy")
+        excluded = any(name == tool or name.startswith(f"{tool}-") for tool in EXCLUDED_TOOLS)
+        if excluded:
             debug(f"Skipping excluded tool: {name}")
             continue
         if only_tools is not None and name not in only_tools:
@@ -295,13 +302,17 @@ def generate_jj_config(treefmt_config: dict, only_tools: set[str] | None = None)
         options = config.get("options", [])
         excludes = config.get("excludes", [])
 
-        # Determine wrapper type
-        if name in NEEDS_WRAPPER:
-            wrapper_type = "edit"
-        elif name in PASSTHROUGH_LINTERS:
-            wrapper_type = "passthrough"
-        else:
-            wrapper_type = None
+        # Determine wrapper type (use prefix matching for tool-directory names)
+        wrapper_type = None
+        for tool in NEEDS_WRAPPER:
+            if name == tool or name.startswith(f"{tool}-"):
+                wrapper_type = "edit"
+                break
+        if wrapper_type is None:
+            for tool in PASSTHROUGH_LINTERS:
+                if name == tool or name.startswith(f"{tool}-"):
+                    wrapper_type = "passthrough"
+                    break
 
         cmd = get_stdin_command(name, command, options, wrapper_type=wrapper_type)
 
@@ -394,7 +405,8 @@ def list_tools(treefmt_config: dict) -> None:
     formatters = treefmt_config.get("formatter", {})
     print("Available tools:")
     for name, config in sorted(formatters.items()):
-        if name in EXCLUDED_TOOLS:
+        excluded = any(name == tool or name.startswith(f"{tool}-") for tool in EXCLUDED_TOOLS)
+        if excluded:
             continue
         includes = config.get("includes", [])
         # Show tool name with patterns (not /nix/store paths)
@@ -402,9 +414,11 @@ def list_tools(treefmt_config: dict) -> None:
         if len(includes) > 3:
             patterns += f", ... (+{len(includes) - 3})"
         status = ""
-        if name in PASSTHROUGH_LINTERS:
+        is_linter = any(name == tool or name.startswith(f"{tool}-") for tool in PASSTHROUGH_LINTERS)
+        is_wrapper = any(name == tool or name.startswith(f"{tool}-") for tool in NEEDS_WRAPPER)
+        if is_linter:
             status = " [linter]"
-        elif name in NEEDS_WRAPPER:
+        elif is_wrapper:
             status = " [wrapper]"
         print(f"  {name}{status}: {patterns}")
 
