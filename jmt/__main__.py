@@ -336,36 +336,34 @@ def generate_jj_config(treefmt_config: dict, only_tools: set[str] | None = None)
     return "\n".join(lines)
 
 
-def get_jj_repo_path(flake_root: Path) -> Path | None:
-    """Get the actual jj repo path, handling worktrees."""
+def get_jj_config_path(flake_root: Path) -> Path | None:
+    """Get repo-level config path from jj itself."""
     jj_dir = flake_root / ".jj"
     if not jj_dir.exists():
         return None
 
-    repo_path = jj_dir / "repo"
-
-    # In worktrees, .jj/repo is a file containing the path to the actual repo
-    if repo_path.is_file():
-        actual_path = Path(repo_path.read_text().strip())
-        if actual_path.exists():
-            return actual_path
+    result = subprocess.run(
+        ["jj", "config", "path", "--repo"],
+        cwd=flake_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        debug(f"jj config path --repo failed: {result.stderr.strip()}")
         return None
 
-    # In normal repos, .jj/repo is a directory
-    if repo_path.is_dir():
-        return repo_path
-
-    return None
+    return Path(result.stdout.strip())
 
 
 def write_jj_config(config: str, flake_root: Path) -> bool:
-    """Write config to .jj/repo/config.toml."""
-    repo_path = get_jj_repo_path(flake_root)
-    if not repo_path:
+    """Write config to jj's repo-level config file."""
+    jj_config = get_jj_config_path(flake_root)
+    if not jj_config:
         print(f"Not a jj repository: {flake_root}", file=sys.stderr)
         return False
 
-    jj_config = repo_path / "config.toml"
+    # Ensure parent directory exists
+    jj_config.parent.mkdir(parents=True, exist_ok=True)
 
     # Read existing config if any
     existing = ""
