@@ -32,17 +32,22 @@ STDIN_ARGS = {
     "terraform": ["-"],  # terraform fmt -
     "prettier": ["--stdin-filepath=$path"],
     "taplo": ["-"],  # taplo format -
-    "ruff": ["--stdin-filename=input.py"],  # ruff format/check needs filename for stdin
+    "ruff": ["--stdin-filename=$path"],  # ruff format/check needs filename for stdin
     "mdformat": ["-"],  # mdformat reads from stdin with -
     "shfmt": ["-"],  # shfmt reads from stdin with -
     "typstyle": [],  # typstyle reads from stdin by default (no arg needed)
 }
 
+# Tool-specific stdin args (keyed by tool name, takes precedence over STDIN_ARGS)
+# ruff check --fix-only outputs fixed content to stdout (unlike --fix which is in-place)
+TOOL_STDIN_ARGS = {
+    "ruff-check": ["--fix-only", "--stdin-filename=$path", "-"],
+    "ruff-isort": ["--fix-only", "--stdin-filename=$path", "-"],
+}
+
 # Tools that need wrapper scripts (no stdin support, but do modify files)
 NEEDS_WRAPPER = {
     "deadnix",  # Requires file path, uses --edit
-    "ruff-isort",  # ruff check --fix doesn't support stdin/stdout
-    "ruff-check",  # ruff check --fix modifies files in-place
 }
 
 # Tools where -i means inplace (not indent)
@@ -207,8 +212,6 @@ def get_inline_command(name: str, command: str, options: list[str], mode: str) -
         "deadnix": ".nix",
         "statix": ".nix",
         "shellcheck": ".sh",
-        "ruff-isort": ".py",
-        "ruff-check": ".py",
     }
     ext = ""
     for tool, tool_ext in ext_map.items():
@@ -252,6 +255,11 @@ def get_stdin_command(
     filtered_opts = [opt for opt in options if opt not in exclude]
 
     base_cmd = [command, *filtered_opts]
+
+    # Tool-specific stdin args (by tool name, takes precedence)
+    for tool, args in TOOL_STDIN_ARGS.items():
+        if name == tool or name.startswith(f"{tool}-"):
+            return [*base_cmd, *args]
 
     # Add stdin argument if needed
     if cmd_name in STDIN_ARGS:
